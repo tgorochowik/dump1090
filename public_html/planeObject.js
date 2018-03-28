@@ -43,6 +43,7 @@ function PlaneObject(icao) {
         this.markerStaticIcon = null;
         this.markerStyleKey = null;
         this.markerSvgKey = null;
+        this.notifySent = false;
 
         // start from a computed registration, let the DB override it
         // if it has something else.

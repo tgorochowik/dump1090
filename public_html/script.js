@@ -10,6 +10,8 @@ var Planes        = {};
 var PlanesOrdered = [];
 var SelectedPlane = null;
 var FollowSelected = false;
+var SelectedZoneLayer = null;
+var SelectedZoneAltitude = 100000; /* TODO tkgk: implement changing through web ui */
 
 var SpecialSquawks = {
         '7500' : { cssClass: 'squawk7500', markerColor: 'rgb(255, 85, 85)', text: 'Aircraft Hijacking' },
@@ -123,10 +125,48 @@ function fetchData() {
 
                 processReceiverUpdate(data);
 
+                if (Notification.permission !== "granted")
+                        Notification.requestPermission();
+
                 // update timestamps, visibility, history track for all planes - not only those updated
                 for (var i = 0; i < PlanesOrdered.length; ++i) {
                         var plane = PlanesOrdered[i];
                         plane.updateTick(now, LastReceiverTimestamp);
+
+                        /* Some sanity checks first */
+                        if (plane.flight === null)
+                                continue;
+
+                        if (plane.visible === false)
+                                continue;
+
+                        if (Notification.permission !== "granted")
+                                continue;
+
+                        if (SelectedZoneLayer.getSource() === null) /* Nothing selected */
+                                continue;
+
+                        if (plane.position === null)
+                                continue;
+
+                        if (plane.notifySent)
+                                continue;
+
+                        if (SelectedZoneLayer.getSource().getFeaturesAtCoordinate(ol.proj.fromLonLat(plane.position)).length < 1)
+                                continue;
+
+                        if (plane.altitude === "ground")
+                                continue;
+
+                        if (plane.altitude > SelectedZoneAltitude)
+                                continue;
+
+                        console.log(plane.altitude + " !< " + SelectedZoneAltitude);
+
+                        new Notification('Attention!', {
+                                body: plane.flight + " is approaching!",
+                        });
+                        plane.notifySent = true;
                 }
                 
 		refreshTableInfo();
@@ -498,6 +538,41 @@ function initialize_map() {
                         selectPlaneByHex(hex, (evt.type === 'dblclick'));
                         evt.stopPropagation();
                 }
+        });
+
+        SelectedZoneLayer = new ol.layer.Vector({
+                style: new ol.style.Style({
+                        stroke: new ol.style.Stroke({
+                                width: 1,
+                                color: [119, 68, 255, 1]
+                        }),
+                        fill: new ol.style.Fill({
+                                color: [255, 68, 119, 0.1]
+                        })
+                })
+        });
+        OLMap.addLayer(SelectedZoneLayer);
+
+        var draw = new ol.interaction.DragBox({
+                condition: function(mapBrowserEvent) {
+                        return ol.events.condition.altKeyOnly(mapBrowserEvent);
+                },
+                style: new ol.style.Style,
+                stroke: ol.style.stroke
+        });
+
+        OLMap.addInteraction(draw);
+        draw.on('boxend', function() {
+                var geo = draw.getGeometry().getCoordinates();
+                var feature = new ol.Feature(new ol.geom.Polygon(geo));
+
+                SelectedZoneLayer.setSource(
+                        new ol.source.Vector({
+                                features: [feature]
+                        }));
+
+                for (var i = 0; i < PlanesOrdered.length; ++i)
+                        PlanesOrdered[i].notifySent = false;
         });
 
 	// Add home marker if requested
